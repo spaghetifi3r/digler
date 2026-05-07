@@ -62,8 +62,11 @@ func (pbs *ProgressBarState) Render(force bool) {
 
 	barLength := 20
 	filledLen := int(float64(barLength) * percentage / 100)
+	if filledLen > barLength {
+		filledLen = barLength
+	}
 	var bar string
-	if filledLen == barLength {
+	if filledLen >= barLength {
 		bar = strings.Repeat("=", barLength)
 	} else {
 		bar = strings.Repeat("=", filledLen) + ">" + strings.Repeat(" ", barLength-filledLen-1)
