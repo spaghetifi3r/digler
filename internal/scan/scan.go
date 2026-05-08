@@ -25,7 +25,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -185,7 +187,10 @@ func ScanPartition(p *disk.Partition, filePath string, opts Options) error {
 	logger.Infof("Output Log: \t%s", outLog)
 	logger.Infof("Scanning for %d signatures...", registry.Signatures())
 
-	size := min(opts.MaxScanSize, p.Size)
+	size := p.Size
+	if size > 0 && opts.MaxScanSize < size {
+		size = opts.MaxScanSize
+	}
 	r := io.NewSectionReader(f, int64(p.Offset), int64(size))
 
 	if opts.DumpDir != "" {
@@ -282,18 +287,35 @@ func DiscoverPartitions(path string) ([]disk.Partition, error) {
 
 	diskSize := uint64(finfo.Size())
 	if diskSize == 0 {
-		// Stat() returns 0 for raw block devices on macOS; determine size by seeking.
-		if f, err := os.Open(path); err == nil {
-			if n, err := f.Seek(0, io.SeekEnd); err == nil && n > 0 {
-				diskSize = uint64(n)
-			}
-			f.Close()
-		}
+		diskSize = deviceSizeFromDiskutil(path)
 	}
 
 	return []disk.Partition{
 		fullDiskPartition(diskSize),
 	}, nil
+}
+
+// deviceSizeFromDiskutil queries diskutil (macOS) to get the byte size of a
+// block device when Stat() returns 0.
+func deviceSizeFromDiskutil(path string) uint64 {
+	out, err := exec.Command("diskutil", "info", path).Output()
+	if err != nil {
+		return 0
+	}
+	for _, line := range strings.Split(string(out), "\n") {
+		if strings.Contains(line, "Disk Size:") || strings.Contains(line, "Total Size:") {
+			// Line format: "   Disk Size: 127.8 GB (127865454592 Bytes) ..."
+			start := strings.Index(line, "(")
+			end := strings.Index(line, " Bytes)")
+			if start >= 0 && end > start {
+				n, err := strconv.ParseUint(strings.TrimSpace(line[start+1:end]), 10, 64)
+				if err == nil {
+					return n
+				}
+			}
+		}
+	}
+	return 0
 }
 
 func fullDiskPartition(diskSize uint64) disk.Partition {
