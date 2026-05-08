@@ -24,13 +24,27 @@ import (
 	"fmt"
 )
 
-// isobmffFtypSizes enumerates the ftyp box sizes most commonly written by
-// cameras, phones, and editing tools (20–48 bytes in steps of 4).
+// isobmffSignatures returns byte signatures for ISOBMFF-based files.
+//
+// Covered cases:
+//  1. ftyp as first atom  — sizes 16–96 bytes (covers all known cameras)
+//  2. free / wide / skip as first atom (8 bytes) — Canon and some QuickTime files
+//     write one of these tiny atoms before ftyp
 func isobmffSignatures() [][]byte {
-	sigs := make([][]byte, 0, 8)
-	for sz := byte(0x14); sz <= 0x30; sz += 4 {
+	var sigs [][]byte
+
+	// ftyp box at offset 0, sizes 16–96 bytes in multiples of 4
+	for sz := byte(0x10); sz <= 0x60; sz += 4 {
 		sigs = append(sigs, []byte{0x00, 0x00, 0x00, sz, 'f', 't', 'y', 'p'})
 	}
+
+	// 8-byte "free", "wide", "skip" atoms that some cameras write before ftyp
+	sigs = append(sigs,
+		[]byte{0x00, 0x00, 0x00, 0x08, 'f', 'r', 'e', 'e'},
+		[]byte{0x00, 0x00, 0x00, 0x08, 'w', 'i', 'd', 'e'},
+		[]byte{0x00, 0x00, 0x00, 0x08, 's', 'k', 'i', 'p'},
+	)
+
 	return sigs
 }
 
@@ -42,7 +56,6 @@ var mp4FileHeader = FileHeader{
 }
 
 // brandExt maps ftyp major brand bytes to the output file extension.
-// Brands absent from this map fall back to "mp4".
 var brandExt = map[[4]byte]string{
 	{'q', 't', ' ', ' '}: "mov",
 	{'c', 'r', 'x', ' '}: "cr3",
@@ -58,8 +71,8 @@ var brandExt = map[[4]byte]string{
 }
 
 // ScanISOBMFF walks the top-level box structure of an ISO Base Media File
-// Format stream (MP4, MOV, CR3) and returns the total size once the stream
-// ends or an invalid box is encountered.
+// Format stream (MP4, MOV, CR3) and returns the total size.
+// It handles files that begin with a "free", "wide", or "skip" atom before ftyp.
 func ScanISOBMFF(r *Reader) (*ScanResult, error) {
 	ext := ""
 
@@ -79,10 +92,10 @@ func ScanISOBMFF(r *Reader) (*ScanResult, error) {
 		var dataSize uint64
 		switch boxSize32 {
 		case 0:
-			// This box extends to the end of the file — treat as end.
+			// Box extends to end of file — treat as end of this file.
 			return &ScanResult{Ext: resolveISOExt(ext), Size: r.BytesRead()}, nil
 		case 1:
-			// 64-bit extended size follows immediately after the type.
+			// 64-bit extended size immediately follows the type.
 			var ext64 [8]byte
 			n, err = r.Read(ext64[:])
 			if n < 8 || err != nil {
