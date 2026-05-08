@@ -280,8 +280,19 @@ func DiscoverPartitions(path string) ([]disk.Partition, error) {
 		return nil, err
 	}
 
+	diskSize := uint64(finfo.Size())
+	if diskSize == 0 {
+		// Stat() returns 0 for raw block devices on macOS; determine size by seeking.
+		if f, err := os.Open(path); err == nil {
+			if n, err := f.Seek(0, io.SeekEnd); err == nil && n > 0 {
+				diskSize = uint64(n)
+			}
+			f.Close()
+		}
+	}
+
 	return []disk.Partition{
-		fullDiskPartition(uint64(finfo.Size())),
+		fullDiskPartition(diskSize),
 	}, nil
 }
 
