@@ -58,11 +58,19 @@ func (pbs *ProgressBarState) Render(force bool) {
 		return
 	}
 
-	percentage := float64(pbs.ProcessedBytes) / float64(pbs.TotalBytes) * 100
+	var percentage float64
+	if pbs.TotalBytes > 0 {
+		percentage = float64(pbs.ProcessedBytes) / float64(pbs.TotalBytes) * 100
+	}
+	if percentage > 100 {
+		percentage = 100
+	}
 
 	barLength := 20
 	filledLen := int(float64(barLength) * percentage / 100)
-	if filledLen > barLength {
+	if filledLen < 0 {
+		filledLen = 0
+	} else if filledLen > barLength {
 		filledLen = barLength
 	}
 	var bar string
