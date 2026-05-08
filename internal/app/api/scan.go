@@ -499,18 +499,21 @@ func (s *ScanAPI) RecoveryProgress(scanID string) (*RecoveryStatus, error) {
 }
 
 func recoverFile(r io.ReaderAt, fi *FileInfo, outDir string) error {
-	sr := io.NewSectionReader(
-		r,
-		int64(fi.Offset),
-		int64(fi.Size),
-	)
+	destPath := filepath.Join(outDir, fi.Name)
 
-	f, err := os.Create(filepath.Join(outDir, fi.Name))
+	// If the file already exists (e.g. written by a previous scan's DumpDir),
+	// ensure it is writable before we try to overwrite it.
+	if info, err := os.Stat(destPath); err == nil && !info.IsDir() {
+		_ = os.Chmod(destPath, 0644)
+	}
+
+	f, err := os.OpenFile(destPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
 	if err != nil {
 		return err
 	}
 	defer f.Close()
 
+	sr := io.NewSectionReader(r, int64(fi.Offset), int64(fi.Size))
 	_, err = io.Copy(f, sr)
 	return err
 }
