@@ -50,6 +50,8 @@ var fileHeaders = []FileHeader{
 	gifFileHeader,
 	pcxFileHeader,
 	tiffFileHeader,
+	// video / raw image formats (ISOBMFF: MP4, MOV, CR3)
+	mp4FileHeader,
 	// generic/documents formats
 	zipFileHeader,
 	rarFileHeader,
