@@ -1,27 +1,8 @@
 import { useEffect, useState } from "react";
-import { motion } from "framer-motion";
-import {
-  ArrowLeft,
-  Folder,
-  File,
-  Image,
-  FileText,
-  Archive,
-  Music,
-  Video,
-  Search,
-  Filter,
-  Download,
-  Eye,
-  CheckSquare,
-  Square
-} from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { ArrowLeft, Folder, File, Image, FileText, Archive, Music, Video, Search, Download, Eye, CheckSquare, Square, Filter } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { DigleLogo } from "@/components/DigleLogo";
 import { api } from '../wailsjs/go/models';
 import { ScanResult, FileContent } from '../wailsjs/go/api/ScanAPI';
 import { formatFileSize } from '../lib/utils';
@@ -32,7 +13,7 @@ const enum FileType {
   Archive = "archive",
   Audio = "audio",
   Video = "video",
-  Other = "other"
+  Other = "other",
 }
 
 interface FileItem {
@@ -50,146 +31,70 @@ interface FolderItem {
   name: string;
   path: string;
   children: (FolderItem | FileItem)[];
-  isExpanded?: boolean;
 }
 
 interface ResultsProps {
   onBack: () => void;
-  onStartRecovery: (results: { scanId: string, selectedFiles: FileItem[] }) => void;
-  scanResults: { scanId: string, filesFound: number, path: string };
+  onStartRecovery: (results: { scanId: string; selectedFiles: FileItem[] }) => void;
+  scanResults: { scanId: string; filesFound: number; path: string };
 }
 
 const fileType = (ext: string): FileType => {
   switch (ext.toLowerCase()) {
-    case "jpg":
-    case "jpeg":
-    case "png":
-    case "gif":
-    case "bmp":
-    case "tiff":
-    case "svg":
-      return FileType.Image;
-
-    case "pdf":
-    case "doc":
-    case "docx":
-    case "xls":
-    case "xlsx":
-    case "ppt":
-    case "pptx":
-    case "txt":
-    case "md":
-      return FileType.Document;
-
-    case "zip":
-    case "rar":
-    case "7z":
-    case "tar":
-    case "gz":
-      return FileType.Archive;
-
-    case "mp3":
-    case "wav":
-    case "flac":
-    case "aac":
-      return FileType.Audio;
-
-    case "mp4":
-    case "mkv":
-    case "avi":
-    case "mov":
-      return FileType.Video;
-
-    default:
-      return FileType.Other;
-  }
-}
-
-// Utility to get MIME type from file extension
-const getMimeType = (fileName: string) => {
-  const ext = fileName.split('.').pop()?.toLowerCase();
-  switch (ext) {
-    // Images
-    case 'png': return 'image/png';
-    case 'jpg':
-    case 'jpeg': return 'image/jpeg';
-    case 'gif': return 'image/gif';
-    case 'bmp': return 'image/bmp';
-    case 'tiff': return 'image/tiff';
-    case 'svg': return 'image/svg+xml';
-
-    // Audio
-    case 'mp3': return 'audio/mpeg';
-    case 'wav': return 'audio/wav';
-    case 'flac': return 'audio/flac';
-    case 'aac': return 'audio/aac';
-    case 'ogg': return 'audio/ogg';
-
-    default: return ''; // unsupported type
+    case "jpg": case "jpeg": case "png": case "gif": case "bmp": case "tiff": return FileType.Image;
+    case "pdf": case "doc": case "docx": case "txt": case "md": return FileType.Document;
+    case "zip": case "rar": case "7z": case "tar": case "gz": return FileType.Archive;
+    case "mp3": case "wav": case "flac": case "aac": return FileType.Audio;
+    case "mp4": case "mkv": case "avi": case "mov": return FileType.Video;
+    default: return FileType.Other;
   }
 };
 
-// Fetch and build data URL
+const getMimeType = (fileName: string) => {
+  const ext = fileName.split('.').pop()?.toLowerCase();
+  const map: Record<string, string> = {
+    png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg',
+    gif: 'image/gif', bmp: 'image/bmp', mp3: 'audio/mpeg',
+    wav: 'audio/wav', flac: 'audio/flac',
+  };
+  return map[ext ?? ''] ?? '';
+};
+
 const getImageDataUrl = async (scanId: string, fileName: string) => {
-  const base64Content = await FileContent(scanId, fileName); // your API call
+  const base64Content = await FileContent(scanId, fileName);
   const mimeType = getMimeType(fileName);
-
-  if (!mimeType) return null; // not an image
-
+  if (!mimeType) return null;
   return `data:${mimeType};base64,${base64Content}`;
 };
 
-const getFileIcon = (type: string, status: string) => {
-  const baseClasses = "h-4 w-4";
-  const statusColor = status === "recoverable" ? "text-success" :
-    status === "partial" ? "text-warning" : "text-danger";
-
+const FileIcon = ({ type, className = "h-4 w-4" }: { type: string; className?: string }) => {
   switch (type) {
-    case "image": return <Image className={`${baseClasses} ${statusColor}`} />;
-    case "document": return <FileText className={`${baseClasses} ${statusColor}`} />;
-    case "archive": return <Archive className={`${baseClasses} ${statusColor}`} />;
-    case "audio": return <Music className={`${baseClasses} ${statusColor}`} />;
-    case "video": return <Video className={`${baseClasses} ${statusColor}`} />;
-    default: return <File className={`${baseClasses} ${statusColor}`} />;
+    case "image":    return <Image className={className} />;
+    case "document": return <FileText className={className} />;
+    case "archive":  return <Archive className={className} />;
+    case "audio":    return <Music className={className} />;
+    case "video":    return <Video className={className} />;
+    default:         return <File className={className} />;
   }
 };
 
-const renderPreviewContent = (file: FileItem) => {
-  const defaultPreview = (
-    <div className="aspect-square bg-muted rounded-lg flex items-center justify-center">
-      <div className="text-center text-muted-foreground">
-        {getFileIcon(file.type, file.status)}
-        <p className="mt-2 text-sm">No preview available</p>
-      </div>
-    </div>
-  );
+const typeColor: Record<string, string> = {
+  image: "text-blue-500",
+  document: "text-orange-500",
+  archive: "text-purple-500",
+  audio: "text-green-500",
+  video: "text-red-500",
+  other: "text-muted-foreground",
+};
 
-  if (!file.preview)
-    return defaultPreview;
+const getAllFileIds = (item: FolderItem | FileItem): string[] => {
+  if ('size' in item) return [item.id];
+  return (item as FolderItem).children.flatMap(getAllFileIds);
+};
 
-  switch (file.type) {
-    case FileType.Image:
-      return (
-        <div className="aspect-square bg-muted rounded-lg flex items-center justify-center">
-          <img
-            src={file.preview}
-            alt={file.name}
-            className="max-w-full max-h-full object-contain"
-          />
-        </div>
-      );
-
-    case FileType.Audio:
-      return (
-        <audio controls className="w-full">
-          <source src={file.preview} type="audio/mpeg" />
-          Your browser does not support the audio element.
-        </audio>
-      );
-
-    default:
-      return defaultPreview;
-  }
+const getAllFiles = (item: FolderItem | FileItem): FileItem[] => {
+  if ('size' in item) return [item as FileItem];
+  return (item as FolderItem).children.flatMap(getAllFiles);
 };
 
 export const Results = ({ onBack, onStartRecovery, scanResults }: ResultsProps) => {
@@ -199,355 +104,266 @@ export const Results = ({ onBack, onStartRecovery, scanResults }: ResultsProps) 
   const [previewFile, setPreviewFile] = useState<FileItem | null>(null);
   const [fileTree, setFileTree] = useState<FolderItem[]>([]);
   const [isPreviewLoading, setIsPreviewLoading] = useState(false);
+  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set(["root", "images", "documents", "audio", "Other"]));
 
   useEffect(() => {
-    // disable/enable scrolling on the whole page
     document.body.style.overflowY = 'hidden';
-
-    return () => {
-      document.body.style.overflowY = 'unset';
-    };
+    return () => { document.body.style.overflowY = 'unset'; };
   }, []);
 
   const handlePreview = async (file: FileItem) => {
-    setIsPreviewLoading(true); // start loading
+    setIsPreviewLoading(true);
     const previewContent = await getImageDataUrl(scanResults.scanId, file.name);
-    setPreviewFile({
-      ...file,
-      preview: previewContent,
-    });
-    setIsPreviewLoading(false); // finished loading
+    setPreviewFile({ ...file, preview: previewContent });
+    setIsPreviewLoading(false);
   };
 
   useEffect(() => {
     const fetchScanResults = async () => {
-      let res: api.ScanResultResponse = null
+      let res: api.ScanResultResponse = null;
       try {
-        res = await ScanResult(scanResults.scanId)
-      } catch (error) {
-        console.error("Failed to fetch scan results:", error);
-        return;
-      }
+        res = await ScanResult(scanResults.scanId);
+      } catch { return; }
 
-      const allFiles = res.files.map(file => {
-        return {
-          id: file.name,
-          name: file.name,
-          path: file.name,
-          size: formatFileSize(file.size),
-          type: fileType(file.ext),
-          status: "recoverable" as "recoverable",
-        }
-      });
+      const allFiles = res.files.map(file => ({
+        id: file.name,
+        name: file.name,
+        path: file.name,
+        size: formatFileSize(file.size),
+        type: fileType(file.ext),
+        status: "recoverable" as const,
+      }));
 
-      const images = allFiles.filter(file => file.type == FileType.Image)
-      const documents = allFiles.filter(file => file.type == FileType.Document)
-      const audio = allFiles.filter(file => file.type == FileType.Audio)
-      const other = allFiles.filter(file => file.type == FileType.Other)
+      const groups = [
+        { id: "images",    name: "Images",    items: allFiles.filter(f => f.type === FileType.Image) },
+        { id: "documents", name: "Documents", items: allFiles.filter(f => f.type === FileType.Document) },
+        { id: "audio",     name: "Audio",     items: allFiles.filter(f => f.type === FileType.Audio) },
+        { id: "video",     name: "Video",     items: allFiles.filter(f => f.type === FileType.Video) },
+        { id: "archive",   name: "Archives",  items: allFiles.filter(f => f.type === FileType.Archive) },
+        { id: "Other",     name: "Other",     items: allFiles.filter(f => f.type === FileType.Other) },
+      ];
 
-      const children = [
-        {
-          id: "documents",
-          name: "Documents",
-          path: "/Documents",
-          children: documents
-        },
-        {
-          id: "images",
-          name: "Images",
-          path: "/Images",
-          children: images
-        },
-        {
-          id: "audio",
-          name: "Audio",
-          path: "/Audio",
-          children: audio
-        },
-        {
-          id: "Other",
-          name: "Other",
-          path: "/Other",
-          children: other
-        },
-      ]
+      setFileTree([{
+        id: "root",
+        name: "Recovered Files",
+        path: "/",
+        children: groups
+          .filter(g => g.items.length > 0)
+          .map(g => ({ id: g.id, name: g.name, path: `/${g.name}`, children: g.items })),
+      }]);
 
-      setFileTree([
-        {
-          id: "root",
-          name: "Recovered Files",
-          path: "/",
-          children: children.filter(item => item.children.length > 0)
-        }
-      ]);
-
-      // Selected all files by default
-      setSelectedFiles(new Set(allFiles.map(f => f.id)))
-    }
+      setSelectedFiles(new Set(allFiles.map(f => f.id)));
+    };
     fetchScanResults();
   }, []);
 
-
-  const getStatusBadge = (status: string) => {
-    switch (status) {
-      case "recoverable":
-        return <Badge className="bg-success/10 text-success border-success/20">Recoverable</Badge>;
-      case "partial":
-        return <Badge className="bg-warning/10 text-warning border-warning/20">Partial</Badge>;
-      case "corrupted":
-        return <Badge className="bg-danger/10 text-danger border-danger/20">Corrupted</Badge>;
-      default:
-        return null;
-    }
+  const toggleFolder = (id: string) => {
+    setExpandedFolders(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
   };
 
-  const toggleFileSelection = (fileId: string) => {
-    const newSelection = new Set(selectedFiles);
-    if (newSelection.has(fileId)) {
-      newSelection.delete(fileId);
+  const toggleItemSelection = (item: FolderItem | FileItem) => {
+    const next = new Set(selectedFiles);
+    if ('size' in item) {
+      next.has(item.id) ? next.delete(item.id) : next.add(item.id);
     } else {
-      newSelection.add(fileId);
+      const ids = getAllFileIds(item);
+      const allSelected = ids.every(id => next.has(id));
+      ids.forEach(id => allSelected ? next.delete(id) : next.add(id));
     }
-    setSelectedFiles(newSelection);
+    setSelectedFiles(next);
   };
 
-  const renderTreeItem = (item: FolderItem | FileItem, level = 0) => {
+  const visibleFiles = (item: FolderItem | FileItem): FileItem[] => {
+    if ('size' in item) {
+      const f = item as FileItem;
+      const matchesSearch = f.name.toLowerCase().includes(searchTerm.toLowerCase());
+      const matchesFilter = filterType === "all" || f.type === filterType;
+      return matchesSearch && matchesFilter ? [f] : [];
+    }
+    return (item as FolderItem).children.flatMap(visibleFiles);
+  };
+
+  const renderTreeItem = (item: FolderItem | FileItem, level = 0): React.ReactNode => {
     const isFile = 'size' in item;
-    const paddingLeft = `${level * 1.5}rem`;
+    const indent = level * 16;
 
     if (isFile) {
       const file = item as FileItem;
+      const shown = visibleFiles(file);
+      if (shown.length === 0 && (searchTerm || filterType !== "all")) return null;
       const isSelected = selectedFiles.has(file.id);
 
       return (
         <div
           key={file.id}
-          className="flex items-center gap-2 p-2 hover:bg-muted/30 cursor-pointer rounded"
-          style={{ paddingLeft }}
-          onClick={() => toggleFileSelection(file.id)}
+          className="flex items-center gap-2 px-3 py-2 hover:bg-muted/40 cursor-pointer rounded-lg group"
+          style={{ paddingLeft: indent + 12 }}
+          onClick={() => toggleItemSelection(file)}
         >
-          {isSelected ?
-            <CheckSquare className="h-4 w-4 text-primary" /> :
-            <Square className="h-4 w-4 text-muted-foreground" />
+          {isSelected
+            ? <CheckSquare className="h-3.5 w-3.5 text-primary flex-shrink-0" />
+            : <Square className="h-3.5 w-3.5 text-muted-foreground/40 flex-shrink-0" />
           }
-          {getFileIcon(file.type, file.status)}
-          <span className="flex-1 text-sm">{file.name}</span>
-          <span className="text-xs text-muted-foreground">{file.size}</span>
-          {getStatusBadge(file.status)}
-          <Button
-            variant="ghost"
-            size="sm"
-            className="p-1"
-            onClick={async (e) => {
-              e.stopPropagation();
-              handlePreview(file);
-            }}
+          <FileIcon type={file.type} className={`h-3.5 w-3.5 flex-shrink-0 ${typeColor[file.type]}`} />
+          <span className="flex-1 text-[13px] text-foreground truncate">{file.name}</span>
+          <span className="text-[11px] text-muted-foreground flex-shrink-0">{file.size}</span>
+          <button
+            className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-muted transition-all flex-shrink-0"
+            onClick={e => { e.stopPropagation(); handlePreview(file); }}
           >
-            <Eye className="h-3 w-3" />
-          </Button>
+            <Eye className="h-3 w-3 text-muted-foreground" />
+          </button>
         </div>
       );
     }
 
-    // Collect all file IDs in a subtree
-    const getAllFileIds = (item: FolderItem | FileItem): string[] => {
-      if ('size' in item) {
-        return [item.id]; // it's a file
-      }
-      return item.children.flatMap(child => getAllFileIds(child));
-    };
-
-    // Determine selection state of a folder
-    const getFolderSelectionState = (folder: FolderItem): "all" | "none" | "partial" => {
-      const allFileIds = getAllFileIds(folder);
-      const selectedCount = allFileIds.filter(id => selectedFiles.has(id)).length;
-
-      if (selectedCount === 0) return "none";
-      if (selectedCount === allFileIds.length) return "all";
-      return "partial";
-    };
-
-    // Modified toggle
-    const toggleItemSelection = (item: FolderItem | FileItem) => {
-      const newSelection = new Set(selectedFiles);
-
-      if ('size' in item) {
-        // File
-        if (newSelection.has(item.id)) {
-          newSelection.delete(item.id);
-        } else {
-          newSelection.add(item.id);
-        }
-      } else {
-        // Folder
-        const allFileIds = getAllFileIds(item);
-        const state = getFolderSelectionState(item);
-
-        if (state === "all") {
-          // deselect everything
-          allFileIds.forEach(id => newSelection.delete(id));
-        } else {
-          // select everything
-          allFileIds.forEach(id => newSelection.add(id));
-        }
-      }
-      setSelectedFiles(newSelection);
-    };
-
     const folder = item as FolderItem;
-    const folderState = getFolderSelectionState(folder);
+    const childFiles = visibleFiles(folder);
+    if (childFiles.length === 0 && (searchTerm || filterType !== "all")) return null;
+
+    const ids = getAllFileIds(folder);
+    const selectedCount = ids.filter(id => selectedFiles.has(id)).length;
+    const selState = selectedCount === 0 ? "none" : selectedCount === ids.length ? "all" : "partial";
+    const isExpanded = expandedFolders.has(folder.id);
 
     return (
       <div key={folder.id}>
         <div
-          className="flex items-center gap-2 p-2 hover:bg-muted/30 cursor-pointer rounded font-medium"
-          style={{ paddingLeft }}
+          className="flex items-center gap-2 px-3 py-2 hover:bg-muted/40 cursor-pointer rounded-lg"
+          style={{ paddingLeft: indent + 12 }}
           onClick={() => toggleItemSelection(folder)}
         >
-          {folderState === "all" && <CheckSquare className="h-4 w-4 text-primary" />}
-          {folderState === "none" && <Square className="h-4 w-4 text-muted-foreground" />}
-          {folderState === "partial" && (
-            <Square className="h-4 w-4 text-warning" /> // or render a custom "indeterminate" checkbox
-          )}
-          <Folder className="h-4 w-4 text-info" />
-          <span className="text-sm">{folder.name}</span>
-          <span className="text-xs text-muted-foreground ml-auto">
-            {getAllFileIds(folder).length} files
-          </span>
+          {selState === "all"
+            ? <CheckSquare className="h-3.5 w-3.5 text-primary flex-shrink-0" />
+            : selState === "none"
+              ? <Square className="h-3.5 w-3.5 text-muted-foreground/40 flex-shrink-0" />
+              : <Square className="h-3.5 w-3.5 text-primary/60 flex-shrink-0" />
+          }
+          <button
+            className="flex items-center gap-2 flex-1 min-w-0"
+            onClick={e => { e.stopPropagation(); toggleFolder(folder.id); }}
+          >
+            <Folder className={`h-3.5 w-3.5 flex-shrink-0 ${folder.id === "root" ? "text-primary" : "text-muted-foreground"}`} />
+            <span className="text-[13px] font-medium text-foreground truncate">{folder.name}</span>
+          </button>
+          <span className="text-[11px] text-muted-foreground flex-shrink-0">{childFiles.length} files</span>
         </div>
-        {folder.children.map(child => renderTreeItem(child, level + 1))}
+        {isExpanded && folder.children.map(child => renderTreeItem(child, level + 1))}
       </div>
     );
   };
 
+  const handleStartRecovery = () => {
+    const allFiles = fileTree.flatMap(getAllFiles);
+    const files = allFiles.filter(f => selectedFiles.has(f.id));
+    onStartRecovery({ scanId: scanResults.scanId, selectedFiles: files });
+  };
+
   return (
-    <div className="min-h-screen bg-gradient-subtle">
-      <div className="container mx-auto px-6 py-8 max-w-7xl">
-        {/* Header */}
-        <motion.div
-          className="flex items-center justify-between mb-8"
-          initial={{ opacity: 0, x: -20 }}
-          animate={{ opacity: 1, x: 0 }}
+    <div className="flex flex-col h-screen bg-background overflow-hidden">
+      {/* Header */}
+      <div className="flex items-center gap-3 px-6 py-4 border-b border-border/60 bg-card/80 backdrop-blur-sm flex-shrink-0">
+        <button onClick={onBack} className="h-7 w-7 rounded-full bg-muted flex items-center justify-center hover:bg-muted/80 transition-colors">
+          <ArrowLeft className="h-3.5 w-3.5 text-muted-foreground" />
+        </button>
+        <img src="/lovable-uploads/f64971ef-af26-4710-aba1-43092c2d604f.png" alt="" className="h-6 w-6 object-contain" />
+        <div className="flex-1 min-w-0">
+          <p className="font-semibold text-[15px] text-foreground">Scan Results</p>
+          <p className="text-[12px] text-muted-foreground">{scanResults.filesFound.toLocaleString()} files found</p>
+        </div>
+        <button
+          onClick={handleStartRecovery}
+          disabled={selectedFiles.size === 0}
+          className="flex items-center gap-2 px-4 py-2 rounded-xl bg-primary text-white text-[13px] font-semibold disabled:opacity-40 hover:brightness-105 transition-all"
         >
-          <div className="flex items-center gap-4">
-            <Button variant="ghost" onClick={onBack} className="p-2">
-              <ArrowLeft className="h-4 w-4" />
-            </Button>
-            <DigleLogo size="sm" showTagline={false} />
-            <div>
-              <h2 className="text-xl font-semibold">Scan Results</h2>
-              <p className="text-sm text-muted-foreground">
-                Found {scanResults.filesFound.toLocaleString()} recoverable files
-              </p>
-            </div>
+          <Download className="h-3.5 w-3.5" />
+          Recover {selectedFiles.size > 0 ? `(${selectedFiles.size})` : ""}
+        </button>
+      </div>
+
+      {/* Search + filter bar */}
+      <div className="flex gap-3 px-6 py-3 border-b border-border/40 bg-card/60 flex-shrink-0">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+          <Input
+            placeholder="Search files…"
+            value={searchTerm}
+            onChange={e => setSearchTerm(e.target.value)}
+            className="pl-9 text-[13px] rounded-xl border-border/60 bg-muted/40 h-8"
+          />
+        </div>
+        <Select value={filterType} onValueChange={setFilterType}>
+          <SelectTrigger className="w-36 text-[13px] rounded-xl border-border/60 bg-muted/40 h-8 gap-1.5">
+            <Filter className="h-3 w-3 text-muted-foreground" />
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Types</SelectItem>
+            <SelectItem value="image">Images</SelectItem>
+            <SelectItem value="video">Video</SelectItem>
+            <SelectItem value="audio">Audio</SelectItem>
+            <SelectItem value="document">Documents</SelectItem>
+            <SelectItem value="archive">Archives</SelectItem>
+            <SelectItem value="other">Other</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      {/* Content */}
+      <div className="flex-1 flex gap-0 min-h-0 overflow-hidden">
+        {/* File tree */}
+        <div className="flex-1 overflow-y-auto p-3">
+          {fileTree.map(item => renderTreeItem(item))}
+        </div>
+
+        {/* Preview panel */}
+        <div className="w-64 border-l border-border/60 flex flex-col bg-card/60 flex-shrink-0">
+          <div className="px-4 py-3.5 border-b border-border/40">
+            <p className="text-[13px] font-semibold text-foreground">Preview</p>
           </div>
-          <Button
-            className="hero-gradient text-primary-foreground"
-            onClick={() => {
-              const files = Array.from(selectedFiles).map(id =>
-                fileTree[0].children.flatMap(folder =>
-                  'children' in folder ? folder.children : [folder]
-                ).find(item => item.id === id) as FileItem
-              ).filter(Boolean);
-              onStartRecovery({ scanId: scanResults.scanId, selectedFiles: files });
-            }}
-            disabled={selectedFiles.size === 0}
-          >
-            <Download className="mr-2 h-4 w-4" />
-            Recover Selected ({selectedFiles.size})
-          </Button>
-        </motion.div>
-
-        <div className="grid grid-cols-12 gap-6 h-[calc(100vh-200px)] overflow-hidden pb-5">
-          {/* File Browser */}
-          <motion.div
-            className="col-span-8"
-            style={{ maxHeight: '700px' }}
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-          >
-            <Card className="h-full">
-              <CardHeader className="pb-3">
-                <div className="flex items-center justify-between">
-                  <CardTitle>Recovered Files</CardTitle>
-                  <div className="flex items-center gap-2">
-                    <div className="relative">
-                      <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                      <Input
-                        placeholder="Search files..."
-                        className="pl-10 w-64"
-                        value={searchTerm}
-                        onChange={(e) => setSearchTerm(e.target.value)}
-                      />
-                    </div>
-                    <Select value={filterType} onValueChange={setFilterType}>
-                      <SelectTrigger className="w-32">
-                        <Filter className="h-4 w-4 mr-2" />
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">All Files</SelectItem>
-                        <SelectItem value="image">Images</SelectItem>
-                        <SelectItem value="document">Documents</SelectItem>
-                        <SelectItem value="archive">Archives</SelectItem>
-                      </SelectContent>
-                    </Select>
+          <div className="flex-1 flex flex-col items-center justify-center p-4 overflow-hidden">
+            {isPreviewLoading ? (
+              <div className="h-8 w-8 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+            ) : previewFile ? (
+              <div className="w-full space-y-3">
+                {previewFile.preview && previewFile.type === FileType.Image ? (
+                  <div className="aspect-square rounded-xl bg-muted/40 flex items-center justify-center overflow-hidden">
+                    <img src={previewFile.preview} alt={previewFile.name} className="max-w-full max-h-full object-contain" />
                   </div>
-                </div>
-              </CardHeader>
-              <CardContent className="p-0 h-[calc(100%-80px)]" >
-                <div className="overflow-y-auto h-full p-4">
-                  {fileTree.map(item => renderTreeItem(item))}
-                </div>
-              </CardContent>
-            </Card>
-          </motion.div>
-
-          {/* Preview Panel */}
-          <motion.div
-            className="col-span-4"
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.2 }}
-          >
-            <Card className="h-full">
-              <CardHeader>
-                <CardTitle>File Preview</CardTitle>
-              </CardHeader>
-              <CardContent>
-                {isPreviewLoading ? (
-                  <div className="h-full flex items-center justify-center">
-                    <div className="animate-spin rounded-full h-10 w-10 border-t-2 border-b-2 border-primary"></div>
-                  </div>
-                ) : previewFile ? (
-                  <div className="space-y-4">
-                    {renderPreviewContent(previewFile)}
-                    <div className="space-y-2">
-                      <h3 className="font-medium truncate">{previewFile.name}</h3>
-                      <p className="text-sm text-muted-foreground">{previewFile.path}</p>
-                      <div className="flex justify-between text-sm">
-                        <span>Size:</span>
-                        <span>{previewFile.size}</span>
-                      </div>
-                      <div className="flex justify-between items-center">
-                        <span className="text-sm">Status:</span>
-                        {getStatusBadge(previewFile.status)}
-                      </div>
-                    </div>
-                  </div>
+                ) : previewFile.preview && previewFile.type === FileType.Audio ? (
+                  <audio controls className="w-full rounded-lg">
+                    <source src={previewFile.preview} />
+                  </audio>
                 ) : (
-                  <div className="h-full flex items-center justify-center text-center text-muted-foreground">
-                    <div>
-                      <Eye className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                      <p>Select a file to preview</p>
-                    </div>
+                  <div className="aspect-square rounded-xl bg-muted/40 flex items-center justify-center">
+                    <FileIcon type={previewFile.type} className={`h-12 w-12 ${typeColor[previewFile.type]}`} />
                   </div>
                 )}
-              </CardContent>
-            </Card>
-          </motion.div>
+                <div className="space-y-2 text-[12px]">
+                  <p className="font-semibold text-foreground truncate">{previewFile.name}</p>
+                  <div className="flex justify-between text-muted-foreground">
+                    <span>Size</span>
+                    <span>{previewFile.size}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-muted-foreground">Status</span>
+                    <Badge className="text-[10px] bg-success/10 text-success border-success/20 h-5">Recoverable</Badge>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="text-center text-muted-foreground">
+                <Eye className="h-10 w-10 mx-auto mb-2 opacity-30" />
+                <p className="text-[12px]">Hover a file to preview</p>
+              </div>
+            )}
+          </div>
         </div>
-      </div >
-    </div >
+      </div>
+    </div>
   );
 };

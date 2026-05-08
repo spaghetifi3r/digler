@@ -1,16 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import { motion } from "framer-motion";
-import { ArrowLeft, Folder, HardDrive, Play, Settings, FileText, Pause, Square, RotateCcw } from "lucide-react";
+import { ArrowLeft, Folder, HardDrive, Play, Settings, FileText, Pause, RotateCcw, StopCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { Separator } from "@/components/ui/separator";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { ProgressBar } from "@/components/ProgressBar";
-import { DigleLogo } from "@/components/DigleLogo";
 import { OpenFileDialog, OpenFolderDialog } from '../wailsjs/go/app/App';
 import { api } from '../wailsjs/go/models.ts';
 import { DefaultOutputDir, ListDevices } from '../wailsjs/go/api/SystemAPI';
@@ -18,12 +14,12 @@ import { StartScan, PollStatus, PauseScan, ResumeScan, AbortScan } from '../wail
 import { GetOrSet, SetConfig } from '../wailsjs/go/api/ConfigAPI';
 import { formatFileSize } from '../lib/utils';
 
-const OUT_DIR_CONFIG_KEY = "OUTDIR"
+const OUT_DIR_CONFIG_KEY = "OUTDIR";
 
 interface ScanProps {
   mode: "image" | "device";
   onBack: () => void;
-  onScanComplete: (results: { filesFound: number, path: string, scanId: string }) => void;
+  onScanComplete: (results: { filesFound: number; path: string; scanId: string }) => void;
 }
 
 export const Scan = ({ onBack, onScanComplete, mode }: ScanProps) => {
@@ -50,33 +46,26 @@ export const Scan = ({ onBack, onScanComplete, mode }: ScanProps) => {
   }, [scanLogs]);
 
   const setErrorMessageWithTimeout = (msg: string, delay: number) => {
-    setErrorMessage(msg)
-    setTimeout(() => {
-      setErrorMessage(null)
-    }, delay)
-  }
+    setErrorMessage(msg);
+    setTimeout(() => setErrorMessage(null), delay);
+  };
 
   const setScanType = (type: "image" | "device") => {
     setSelectedPath("");
     setScanTypeState(type);
-  }
+  };
 
-  // Browse for disk image using Wails native dialog
   const browseFile = async () => {
     try {
       const filters = [
         { name: "Disk Images", pattern: "*.dd;*.img;*.iso" },
         { name: "All Files", pattern: "*" },
-      ]
-
+      ];
       const filePath = await OpenFileDialog("Select Image", filters);
       if (filePath) setSelectedPath(filePath);
-    } catch (err) {
-      console.error("File dialog cancelled or failed", err);
-    }
+    } catch {}
   };
 
-  // Browse for output folder using Wails native dialog
   const browseOutputPath = async () => {
     try {
       const folderPath = await OpenFolderDialog();
@@ -84,29 +73,22 @@ export const Scan = ({ onBack, onScanComplete, mode }: ScanProps) => {
         await SetConfig(OUT_DIR_CONFIG_KEY, folderPath);
         setOutputPath(folderPath);
       }
-    } catch (err) {
-      console.error("Folder dialog cancelled or failed", err);
-    }
+    } catch {}
   };
 
   useEffect(() => {
-    // Fetch list of devices on mount
     const fetchDevices = async () => {
       try {
         const deviceList = await ListDevices();
         setDevices(deviceList);
-      } catch (err) {
-        console.error("Failed to list devices", err);
-      }
+      } catch {}
     };
-
     const setDefaultOutputPath = () => {
-      DefaultOutputDir().
-        then(defaultOutputDir => GetOrSet(OUT_DIR_CONFIG_KEY, defaultOutputDir))
+      DefaultOutputDir()
+        .then(dir => GetOrSet(OUT_DIR_CONFIG_KEY, dir))
         .then(outDir => setOutputPath(outDir))
-        .catch(err => console.error("Failed to get working directory", err))
-    }
-
+        .catch(() => {});
+    };
     fetchDevices();
     setDefaultOutputPath();
   }, []);
@@ -116,124 +98,91 @@ export const Scan = ({ onBack, onScanComplete, mode }: ScanProps) => {
     "Images Only (JPEG, PNG, GIF)",
     "Documents (PDF, DOC, TXT)",
     "Archives (ZIP, RAR, 7Z)",
-    "Custom Signatures"
+    "Custom Signatures",
   ];
 
   const startTimeRef = useRef<number | null>(null);
+  const intervalRef = useRef<number | null>(null);
+  const scanIdRef = useRef<string>("");
 
   const elapsedTime = () => {
-    const elapsedMs = Date.now() - startTimeRef.current;
-
+    const elapsedMs = Date.now() - startTimeRef.current!;
     const totalSeconds = Math.floor(elapsedMs / 1000);
     const hours = Math.floor(totalSeconds / 3600);
     const seconds = totalSeconds % 60;
-
-    const formattedTime = `${String(hours).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
-    return formattedTime;
-  }
-
-  const intervalRef = useRef<number | null>(null);
+    return `${String(hours).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+  };
 
   const refreshStatus = async () => {
     let scanStatus: api.ScanStatusResponse = null;
     try {
       scanStatus = await PollStatus(scanIdRef.current);
-    } catch (error) {
-      console.error("Error polling scan status:", error);
-      setScanLogs(prev => [...prev, "Error retrieving scan status. Retrying..."]);
+    } catch {
+      setScanLogs(prev => [...prev, "Error retrieving scan status. Retrying…"]);
       return;
     }
-
     if (!scanStatus) return;
 
-    setProgress(prev => {
-      setScanStats({
-        filesFound: scanStatus!.files,
-        timeElapsed: elapsedTime()
-      });
-
+    setProgress(() => {
+      setScanStats({ filesFound: scanStatus!.files, timeElapsed: elapsedTime() });
       const newProgress = scanStatus.progress;
-
       if (newProgress >= 1) {
-        if (intervalRef.current != null)
-          clearInterval(intervalRef.current);
-
-        setScanLogs(prev => [...prev, "Scan completed successfully!", "Analyzing results..."]);
+        if (intervalRef.current != null) clearInterval(intervalRef.current);
+        setScanLogs(prev => [...prev, "Scan completed successfully!"]);
         setTimeout(() => {
-          onScanComplete(
-            {
-              filesFound: scanStatus.files,
-              path: selectedPath,
-              scanId: scanIdRef.current
-            }
-          );
-        }, 2000);
+          onScanComplete({ filesFound: scanStatus.files, path: selectedPath, scanId: scanIdRef.current });
+        }, 1500);
       } else {
         const logs = [
-          `Scanning sector ${Math.floor(newProgress * 1000)}...`,
+          `Scanning sector ${Math.floor(newProgress * 1000)}…`,
           `Found deleted file: document_${Math.floor(Math.random() * 1000)}.pdf`,
           `Recovered image: IMG_${Math.floor(Math.random() * 9999)}.jpg`,
-          `Processing filesystem metadata...`
+          `Processing filesystem metadata…`,
         ];
         setScanLogs(prev => [...prev, logs[Math.floor(Math.random() * logs.length)]]);
       }
       return newProgress * 100;
     });
-  }
-
-  const scanIdRef = useRef<string>("");
+  };
 
   const handleStartScan = async () => {
     if (!selectedPath || !outputPath) return;
-
     try {
       scanIdRef.current = await StartScan(selectedPath, outputPath);
     } catch (error) {
-      let errMsg = error as string
-      if (errMsg.includes('permission denied')) {
-        errMsg += '\n (Try restarting with elevated privileges)'
-      }
-
+      let errMsg = error as string;
+      if (errMsg.includes('permission denied')) errMsg += '\n(Try restarting with elevated privileges)';
       setErrorMessageWithTimeout(errMsg, 3000);
-      setScanLogs(prev => [...prev, "Error starting scan. Please try again."]);
       return;
     }
-
-    startTimeRef.current = Date.now()
-    intervalRef.current = (setInterval(refreshStatus, 200) as unknown) as number;
-
+    startTimeRef.current = Date.now();
+    intervalRef.current = setInterval(refreshStatus, 200) as unknown as number;
     setIsScanning(true);
     setIsPaused(false);
     setIsAborted(false);
-    setScanLogs(["Starting forensic scan...", `Target: ${selectedPath}`, `Output: ${outputPath}`]);
+    setScanLogs(["Starting scan…", `Target: ${selectedPath}`, `Output: ${outputPath}`]);
   };
 
   const handlePauseScan = async () => {
-    await PauseScan(scanIdRef.current)
-
-    if (intervalRef.current != null)
-      clearInterval(intervalRef.current)
-
+    await PauseScan(scanIdRef.current);
+    if (intervalRef.current != null) clearInterval(intervalRef.current);
     setIsPaused(true);
-    setScanLogs(prev => [...prev, "Scan paused by user"]);
+    setScanLogs(prev => [...prev, "Scan paused"]);
   };
 
   const handleResumeScan = async () => {
-    await ResumeScan(scanIdRef.current)
-
-    intervalRef.current = (setInterval(refreshStatus, 200) as unknown) as number;
-
+    await ResumeScan(scanIdRef.current);
+    intervalRef.current = setInterval(refreshStatus, 200) as unknown as number;
     setIsPaused(false);
     setScanLogs(prev => [...prev, "Scan resumed"]);
   };
 
   const handleAbortScan = async () => {
-    await AbortScan(scanIdRef.current)
-
+    await AbortScan(scanIdRef.current);
     setIsAborted(true);
     setIsScanning(false);
     setIsPaused(false);
-    setScanLogs(prev => [...prev, "Scan aborted by user"]);
+    setScanLogs(prev => [...prev, "Scan aborted"]);
   };
 
   const handleReturnToConfig = () => {
@@ -244,308 +193,295 @@ export const Scan = ({ onBack, onScanComplete, mode }: ScanProps) => {
   };
 
   const handleViewPartialResults = () => {
-    onScanComplete({
-      filesFound: scanStats.filesFound,
-      path: selectedPath,
-      scanId: scanIdRef.current
-    });
-  }
+    onScanComplete({ filesFound: scanStats.filesFound, path: selectedPath, scanId: scanIdRef.current });
+  };
 
-  return (
-    <div className="min-h-screen bg-gradient-subtle">
-      <div className="container mx-auto px-6 py-8 max-w-4xl">
-        {/* Header */}
-        <motion.div
-          className="flex items-center gap-4 mb-8"
-          initial={{ opacity: 0, x: -20 }}
-          animate={{ opacity: 1, x: 0 }}
-        >
-          {!isScanning && (
-            <Button variant="ghost" onClick={onBack} className="p-2">
-              <ArrowLeft className="h-4 w-4" />
-            </Button>
-          )}
-          <DigleLogo size="sm" showTagline={false} />
-          <div className="flex-1" />
-          <span className="text-sm text-muted-foreground">Forensic Data Recovery</span>
-        </motion.div>
+  /* ── shared header ── */
+  const Header = () => (
+    <div className="flex items-center gap-3 px-6 py-4 border-b border-border/60 bg-card/80 backdrop-blur-sm">
+      {!isScanning && (
+        <button onClick={onBack} className="h-7 w-7 rounded-full bg-muted flex items-center justify-center hover:bg-muted/80 transition-colors">
+          <ArrowLeft className="h-3.5 w-3.5 text-muted-foreground" />
+        </button>
+      )}
+      <img src="/lovable-uploads/f64971ef-af26-4710-aba1-43092c2d604f.png" alt="" className="h-6 w-6 object-contain" />
+      <span className="font-semibold text-[15px] text-foreground">
+        {isScanning ? "Scanning…" : isAborted ? "Scan Aborted" : "New Scan"}
+      </span>
+    </div>
+  );
 
-        {!isScanning && !isAborted ? (
-          <motion.div
-            className="space-y-6"
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-          >
-            {/* Source Selection */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  {scanType === "image" ? <Folder className="h-5 w-5" /> : <HardDrive className="h-5 w-5" />}
-                  Select Source
-                </CardTitle>
-                <CardDescription>
-                  Choose what you want to scan for deleted or lost files
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <Button
-                    variant={scanType === "image" ? "default" : "outline"}
-                    className="h-20 flex-col gap-2"
-                    onClick={() => setScanType("image")}
-                  >
-                    <Folder className="h-6 w-6" />
-                    Disk Image
-                  </Button>
-                  <Button
-                    variant={scanType === "device" ? "default" : "outline"}
-                    className="h-20 flex-col gap-2"
-                    onClick={() => setScanType("device")}
-                  >
-                    <HardDrive className="h-6 w-6" />
-                    Physical Device
-                  </Button>
-                </div>
+  /* ── config view ── */
+  if (!isScanning && !isAborted) {
+    return (
+      <div className="flex flex-col h-screen bg-background">
+        <Header />
+        <div className="flex-1 overflow-y-auto p-6 space-y-4">
+          {/* Source card */}
+          <div className="bg-card rounded-2xl border border-border/60 shadow-sm overflow-hidden">
+            <div className="px-5 py-4 border-b border-border/40">
+              <p className="font-semibold text-[15px] text-foreground">Source</p>
+              <p className="text-[13px] text-muted-foreground mt-0.5">Choose what to scan for deleted files</p>
+            </div>
+            <div className="p-5 space-y-4">
+              {/* Segmented control */}
+              <div className="flex bg-muted rounded-xl p-1 gap-1">
+                <button
+                  onClick={() => setScanType("image")}
+                  className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-[13px] font-medium transition-all ${
+                    scanType === "image"
+                      ? "bg-card shadow-sm text-foreground"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  <Folder className="h-3.5 w-3.5" />
+                  Disk Image
+                </button>
+                <button
+                  onClick={() => setScanType("device")}
+                  className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-[13px] font-medium transition-all ${
+                    scanType === "device"
+                      ? "bg-card shadow-sm text-foreground"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  <HardDrive className="h-3.5 w-3.5" />
+                  Physical Device
+                </button>
+              </div>
 
-                <div className="space-y-2">
-                  <Label>{scanType === "image" ? "Image File Path" : "Device"}</Label>
-                  {scanType === "image" ? (
-                    <div className="flex gap-2">
-                      <Input
-                        placeholder="Select an image file"
-                        readOnly
-                        value={selectedPath}
-                        onChange={(e) => setSelectedPath(e.target.value)}
-                      />
-                      <Button variant="outline" onClick={browseFile}>Browse</Button>
-                    </div>
-                  ) : (
-                    <Select value={selectedPath} onValueChange={setSelectedPath}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select device to scan" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {devices.map((device) => (
-                          <SelectItem key={device.name} value={device.path}>
-                            {`${device.name} - ${device.model} (${formatFileSize(device.size)})`}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Output & Options */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Settings className="h-5 w-5" />
-                  Scan Options
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="space-y-2">
-                  <Label>Output Directory</Label>
+              {scanType === "image" ? (
+                <div>
+                  <Label className="text-[13px] font-medium text-foreground mb-1.5 block">Image File</Label>
                   <div className="flex gap-2">
                     <Input
-                      placeholder="Select an output path"
+                      placeholder="No file selected"
                       readOnly
-                      value={outputPath}
+                      value={selectedPath}
+                      className="text-[13px] rounded-xl border-border/60 bg-muted/40"
                     />
-                    <Button variant="outline" onClick={browseOutputPath}>Browse</Button>
+                    <Button variant="outline" onClick={browseFile} className="rounded-xl text-[13px] px-4 border-border/60">
+                      Browse
+                    </Button>
                   </div>
                 </div>
-
-                <Separator />
-
-                <div className="flex items-center justify-between">
-                  <div className="space-y-1">
-                    <Label>Recover files during scan</Label>
-                    <p className="text-sm text-muted-foreground">
-                      Automatically save recovered files (slower but convenient)
-                    </p>
-                  </div>
-                  <Switch checked={dumpEnabled} onCheckedChange={setDumpEnabled} />
-                </div>
-
-                <div className="space-y-2">
-                  <Label>File Type Filter</Label>
-                  <Select value={selectedPlugin} onValueChange={setSelectedPlugin}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="All file types" />
+              ) : (
+                <div>
+                  <Label className="text-[13px] font-medium text-foreground mb-1.5 block">Device</Label>
+                  <Select value={selectedPath} onValueChange={setSelectedPath}>
+                    <SelectTrigger className="rounded-xl text-[13px] border-border/60 bg-muted/40">
+                      <SelectValue placeholder="Select device…" />
                     </SelectTrigger>
                     <SelectContent>
-                      {plugins.map((plugin) => (
-                        <SelectItem key={plugin} value={plugin}>
-                          {plugin}
+                      {devices.map(device => (
+                        <SelectItem key={device.name} value={device.path}>
+                          {`${device.name} — ${device.model} (${formatFileSize(device.size)})`}
                         </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
                 </div>
-              </CardContent>
-            </Card>
-
-            {/* Start Button */}
-            <div className="space-y-3">
-              <Button
-                size="lg"
-                className="w-full hero-gradient text-primary-foreground font-semibold"
-                onClick={handleStartScan}
-                disabled={!selectedPath || !outputPath}
-              >
-                <Play className="mr-2 h-5 w-5" />
-                Start Deep Scan
-              </Button>
-
-              {/* Error/Success Message */}
-              {errorMessage && (
-                <motion.div
-                  initial={{ opacity: 0, y: -10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -10 }}
-                  className="text-center text-sm font-medium text-danger"
-                >
-                  {errorMessage}
-                </motion.div>
               )}
             </div>
-          </motion.div>
-        ) : isScanning ? (
-          <motion.div
-            className="space-y-6"
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-          >
-            {/* Progress Section */}
-            <Card>
-              <CardHeader>
-                <CardTitle>Scanning in Progress</CardTitle>
-                <CardDescription>Deep scanning {selectedPath}</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <ProgressBar
-                  progress={Math.trunc(progress * 100) / 100}
-                  label="Overall Progress"
-                  showPercentage={true}
-                  variant="default"
-                />
+          </div>
 
-                <div className="grid grid-cols-3 gap-4 text-center">
-                  <div>
-                    <p className="text-2xl font-bold text-primary">{scanStats.filesFound}</p>
-                    <p className="text-sm text-muted-foreground">Files Found</p>
-                  </div>
-                  <div>
-                    <p className="text-2xl font-bold text-primary">{scanStats.timeElapsed}</p>
-                    <p className="text-sm text-muted-foreground">Time Elapsed</p>
-                  </div>
-                  <div>
-                    <p className="text-2xl font-bold text-primary">{Math.round(progress)}%</p>
-                    <p className="text-sm text-muted-foreground">Complete</p>
-                  </div>
-                </div>
-
-                {/* Scan Control Buttons */}
-                <div className="flex gap-2 justify-center mt-6">
-                  {!isPaused ? (
-                    <Button variant="outline" onClick={handlePauseScan}>
-                      <Pause className="mr-2 h-4 w-4" />
-                      Pause
-                    </Button>
-                  ) : (
-                    <Button variant="outline" onClick={handleResumeScan}>
-                      <RotateCcw className="mr-2 h-4 w-4" />
-                      Resume
-                    </Button>
-                  )}
-
-                  <AlertDialog>
-                    <AlertDialogTrigger asChild>
-                      <Button variant="destructive">
-                        <Square className="mr-2 h-4 w-4" />
-                        Abort
-                      </Button>
-                    </AlertDialogTrigger>
-                    <AlertDialogContent>
-                      <AlertDialogHeader>
-                        <AlertDialogTitle>Abort Scan</AlertDialogTitle>
-                        <AlertDialogDescription>
-                          Are you sure you want to abort the scan? This will stop the current operation and you can view partial results or restart the scan.
-                        </AlertDialogDescription>
-                      </AlertDialogHeader>
-                      <AlertDialogFooter>
-                        <AlertDialogCancel>Cancel</AlertDialogCancel>
-                        <AlertDialogAction onClick={handleAbortScan}>Abort Scan</AlertDialogAction>
-                      </AlertDialogFooter>
-                    </AlertDialogContent>
-                  </AlertDialog>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Live Log */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <FileText className="h-5 w-5" />
-                  Live Scan Log
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="bg-background border rounded-lg p-4 h-64 overflow-y-auto font-mono text-sm">
-                  {scanLogs.map((log, index) => (
-                    <div key={index} className="text-foreground">
-                      <span className="text-muted-foreground mr-2">
-                        [{new Date().toLocaleTimeString()}]
-                      </span>
-                      {log}
-                    </div>
-                  ))}
-
-                  {/* Invisible div to scroll into view */}
-                  <div ref={logEndRef} />
-                </div>
-              </CardContent>
-            </Card>
-          </motion.div>
-        ) : isAborted ? (
-          <motion.div
-            className="space-y-6"
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-          >
-            {/* Post-Abort Options */}
-            <Card>
-              <CardHeader>
-                <CardTitle>Scan Aborted</CardTitle>
-                <CardDescription>
-                  The scan was stopped. You can view the partial results collected so far or return to configure a new scan.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="text-center space-y-2">
-                  <p className="text-lg font-semibold">Partial Results Available</p>
-                  <p className="text-2xl font-bold text-primary">{scanStats.filesFound} files found</p>
-                  <p className="text-sm text-muted-foreground">before scan was aborted</p>
-                </div>
-
-                <div className="flex gap-4 justify-center">
-                  <Button variant="outline" onClick={handleReturnToConfig}>
-                    <Settings className="mr-2 h-4 w-4" />
-                    Configure New Scan
-                  </Button>
-                  <Button onClick={handleViewPartialResults}>
-                    <FileText className="mr-2 h-4 w-4" />
-                    View Partial Results
+          {/* Options card */}
+          <div className="bg-card rounded-2xl border border-border/60 shadow-sm overflow-hidden">
+            <div className="px-5 py-4 border-b border-border/40">
+              <p className="font-semibold text-[15px] text-foreground flex items-center gap-2">
+                <Settings className="h-4 w-4 text-muted-foreground" />
+                Options
+              </p>
+            </div>
+            <div className="divide-y divide-border/40">
+              {/* Output dir */}
+              <div className="px-5 py-4 space-y-1.5">
+                <Label className="text-[13px] font-medium text-foreground block">Output Directory</Label>
+                <div className="flex gap-2">
+                  <Input
+                    placeholder="No directory selected"
+                    readOnly
+                    value={outputPath}
+                    className="text-[13px] rounded-xl border-border/60 bg-muted/40"
+                  />
+                  <Button variant="outline" onClick={browseOutputPath} className="rounded-xl text-[13px] px-4 border-border/60">
+                    Browse
                   </Button>
                 </div>
-              </CardContent>
-            </Card>
-          </motion.div>
-        ) : null}
+              </div>
+
+              {/* Recover during scan toggle */}
+              <div className="px-5 py-4 flex items-center justify-between">
+                <div>
+                  <p className="text-[14px] font-medium text-foreground">Recover files during scan</p>
+                  <p className="text-[12px] text-muted-foreground mt-0.5">Save files as they're found (slower)</p>
+                </div>
+                <Switch checked={dumpEnabled} onCheckedChange={setDumpEnabled} />
+              </div>
+
+              {/* File type filter */}
+              <div className="px-5 py-4 space-y-1.5">
+                <Label className="text-[13px] font-medium text-foreground block">File Type Filter</Label>
+                <Select value={selectedPlugin} onValueChange={setSelectedPlugin}>
+                  <SelectTrigger className="rounded-xl text-[13px] border-border/60 bg-muted/40">
+                    <SelectValue placeholder="All file types" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {plugins.map(p => (
+                      <SelectItem key={p} value={p}>{p}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          </div>
+
+          {/* Error */}
+          {errorMessage && (
+            <p className="text-[13px] text-destructive text-center font-medium px-4">{errorMessage}</p>
+          )}
+        </div>
+
+        {/* Sticky start button */}
+        <div className="px-6 pb-6 pt-3 bg-background border-t border-border/40">
+          <button
+            onClick={handleStartScan}
+            disabled={!selectedPath || !outputPath}
+            className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl bg-primary text-white font-semibold text-[15px] disabled:opacity-40 disabled:cursor-not-allowed hover:brightness-105 transition-all shadow-sm"
+          >
+            <Play className="h-4 w-4" />
+            Start Deep Scan
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  /* ── aborted view ── */
+  if (isAborted) {
+    return (
+      <div className="flex flex-col h-screen bg-background">
+        <Header />
+        <div className="flex-1 flex flex-col items-center justify-center p-8 gap-6">
+          <div className="bg-card rounded-2xl border border-border/60 shadow-sm p-8 w-full max-w-md text-center space-y-4">
+            <div className="h-14 w-14 rounded-full bg-warning/10 flex items-center justify-center mx-auto">
+              <StopCircle className="h-7 w-7 text-warning" />
+            </div>
+            <div>
+              <p className="font-semibold text-[17px] text-foreground">Scan Stopped</p>
+              <p className="text-[13px] text-muted-foreground mt-1">
+                {scanStats.filesFound.toLocaleString()} files were found before the scan was aborted
+              </p>
+            </div>
+            <div className="flex gap-3 pt-2">
+              <button
+                onClick={handleReturnToConfig}
+                className="flex-1 py-2.5 rounded-xl border border-border/60 text-[14px] font-medium text-foreground hover:bg-muted/40 transition-colors"
+              >
+                New Scan
+              </button>
+              <button
+                onClick={handleViewPartialResults}
+                className="flex-1 py-2.5 rounded-xl bg-primary text-white text-[14px] font-medium hover:brightness-105 transition-all"
+              >
+                View Results
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  /* ── scanning view ── */
+  return (
+    <div className="flex flex-col h-screen bg-background">
+      <Header />
+      <div className="flex-1 overflow-y-auto p-6 space-y-4">
+        {/* Progress card */}
+        <div className="bg-card rounded-2xl border border-border/60 shadow-sm overflow-hidden">
+          <div className="px-5 py-4 border-b border-border/40">
+            <p className="font-semibold text-[15px] text-foreground">Deep Scan in Progress</p>
+            <p className="text-[12px] text-muted-foreground mt-0.5 truncate">{selectedPath}</p>
+          </div>
+          <div className="px-5 py-5 space-y-5">
+            <ProgressBar progress={Math.trunc(progress * 100) / 100} showPercentage />
+
+            <div className="grid grid-cols-3 gap-4">
+              {[
+                { label: "Files Found", value: scanStats.filesFound.toLocaleString() },
+                { label: "Time Elapsed", value: scanStats.timeElapsed },
+                { label: "Complete", value: `${Math.round(progress)}%` },
+              ].map(stat => (
+                <div key={stat.label} className="bg-muted/40 rounded-xl p-3 text-center">
+                  <p className="text-[20px] font-bold text-primary">{stat.value}</p>
+                  <p className="text-[11px] text-muted-foreground mt-0.5">{stat.label}</p>
+                </div>
+              ))}
+            </div>
+
+            {/* Controls */}
+            <div className="flex gap-3 justify-center">
+              {!isPaused ? (
+                <button
+                  onClick={handlePauseScan}
+                  className="flex items-center gap-2 px-5 py-2 rounded-xl border border-border/60 text-[13px] font-medium text-foreground hover:bg-muted/40 transition-colors"
+                >
+                  <Pause className="h-3.5 w-3.5" />
+                  Pause
+                </button>
+              ) : (
+                <button
+                  onClick={handleResumeScan}
+                  className="flex items-center gap-2 px-5 py-2 rounded-xl border border-border/60 text-[13px] font-medium text-foreground hover:bg-muted/40 transition-colors"
+                >
+                  <RotateCcw className="h-3.5 w-3.5" />
+                  Resume
+                </button>
+              )}
+
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <button className="flex items-center gap-2 px-5 py-2 rounded-xl bg-destructive/10 text-destructive text-[13px] font-medium hover:bg-destructive/15 transition-colors">
+                    <StopCircle className="h-3.5 w-3.5" />
+                    Stop
+                  </button>
+                </AlertDialogTrigger>
+                <AlertDialogContent className="rounded-2xl">
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Stop Scan?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      You can view partial results or start a new scan. This will stop the current operation.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel className="rounded-xl">Cancel</AlertDialogCancel>
+                    <AlertDialogAction onClick={handleAbortScan} className="rounded-xl bg-destructive hover:bg-destructive/90">
+                      Stop Scan
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            </div>
+          </div>
+        </div>
+
+        {/* Live log */}
+        <div className="bg-card rounded-2xl border border-border/60 shadow-sm overflow-hidden">
+          <div className="px-5 py-3.5 border-b border-border/40 flex items-center gap-2">
+            <FileText className="h-4 w-4 text-muted-foreground" />
+            <p className="font-medium text-[14px] text-foreground">Live Log</p>
+          </div>
+          <div className="h-52 overflow-y-auto p-4 font-mono text-[12px] space-y-0.5 bg-muted/20">
+            {scanLogs.map((log, i) => (
+              <div key={i} className="flex gap-2">
+                <span className="text-muted-foreground/60 flex-shrink-0">{new Date().toLocaleTimeString()}</span>
+                <span className="text-foreground/80">{log}</span>
+              </div>
+            ))}
+            <div ref={logEndRef} />
+          </div>
+        </div>
       </div>
     </div>
   );

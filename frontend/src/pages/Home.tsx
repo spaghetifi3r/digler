@@ -1,16 +1,11 @@
 import { useState, useEffect } from "react";
-import { motion } from "framer-motion";
-import { Folder, HardDrive, Clock, ChevronRight, AlertCircle, Trash2 } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { DigleLogo } from "@/components/DigleLogo";
+import { Folder, HardDrive, ChevronRight, AlertCircle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
-
 import { api } from '../wailsjs/go/models';
 import { LoadScanHistory, SetCurrentScan, ClearScanHistory } from '../wailsjs/go/api/ScanAPI';
 
-const MAX_HISTORY_ITEMS = 20
+const MAX_HISTORY_ITEMS = 20;
 
 interface HomeProps {
   onNavigateToScan: (mode: 'image' | 'device') => void;
@@ -19,187 +14,137 @@ interface HomeProps {
 
 const formatTime = (timestampSeconds: number): string => {
   const date = new Date(timestampSeconds * 1000);
-
-  // Convert ISO string to "YYYY-MM-DD HH:MM:SS"
-  const formatted = date.toISOString().replace('T', ' ').split('.')[0];
-  return formatted
-}
+  return date.toISOString().replace('T', ' ').split('.')[0];
+};
 
 export const Home = ({ onNavigateToScan, onOpenRecent }: HomeProps) => {
   const [recentScans, setRecentScans] = useState<api.ScanHistoryRecord[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const fetchRecentScans = async () => {
+    const fetch = async () => {
       try {
-        const scanInfo = await LoadScanHistory(MAX_HISTORY_ITEMS);
-        setRecentScans(scanInfo);
-      } catch (error) {
-        console.error("Error fetching recent scans:", error);
-      } finally {
-        setLoading(false);
-      }
+        const scans = await LoadScanHistory(MAX_HISTORY_ITEMS);
+        setRecentScans(scans);
+      } catch {}
+      setLoading(false);
     };
-
-    const setCurrentScan = async (scanID: string) => {
-      try {
-        await SetCurrentScan(scanID)
-      } catch (error) {
-        console.log("SetCurrentScan: ", error)
-      }
-    }
-
-    setCurrentScan("")
-    fetchRecentScans();
+    SetCurrentScan("").catch(() => {});
+    fetch();
   }, []);
 
   return (
-    <div className="h-screen bg-gradient-subtle overflow-hidden">
-      <div className="container mx-auto px-6 py-12 max-w-4xl h-full flex flex-col">
-        {/* Hero Section */}
-        <motion.div
-          className="text-center mb-12"
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6 }}
-        >
-          <DigleLogo size="lg" showTagline={true} />
-          <p className="mt-6 text-lg text-muted-foreground max-w-2xl mx-auto">
-            Professional forensic data recovery made simple. Recover lost files from disk images and devices with advanced deep-scan technology.
-          </p>
-        </motion.div>
-
-        {/* Main Actions */}
-        <motion.div
-          className="grid md:grid-cols-2 gap-6 mb-12"
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6, delay: 0.2 }}
-        >
-          <Card className="card-elevated hover:scale-105 transition-smooth cursor-pointer"
-            onClick={() => onNavigateToScan('image')}>
-            <CardHeader className="text-center pb-4">
-              <div className="mx-auto mb-4 h-16 w-16 rounded-full bg-primary/10 flex items-center justify-center">
-                <Folder className="h-8 w-8 text-primary" />
-              </div>
-              <CardTitle>Open Disk Image</CardTitle>
-              <CardDescription>
-                Scan .dd, .img, .raw, and other disk image files
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="pt-0">
-              <Button className="w-full hero-gradient border-0 text-primary-foreground font-semibold">
-                Browse Image Files
-                <ChevronRight className="ml-2 h-4 w-4" />
-              </Button>
-            </CardContent>
-          </Card>
-
-          <Card className="card-elevated hover:scale-105 transition-smooth cursor-pointer"
-            onClick={() => onNavigateToScan('device')}>
-            <CardHeader className="text-center pb-4">
-              <div className="mx-auto mb-4 h-16 w-16 rounded-full bg-primary/10 flex items-center justify-center">
-                <HardDrive className="h-8 w-8 text-primary" />
-              </div>
-              <CardTitle>Scan Device</CardTitle>
-              <CardDescription>
-                Directly scan physical drives and partitions
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="pt-0">
-              <Button className="w-full hero-gradient border-0 text-primary-foreground font-semibold">
-                Select Device
-                <ChevronRight className="ml-2 h-4 w-4" />
-              </Button>
-            </CardContent>
-          </Card>
-        </motion.div>
-
-        {/* Recent Scans */}
-
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6, delay: 0.4 }}
-          className="flex-1 min-h-0"
-        >
-          <Card className="h-full flex flex-col">
-            <CardHeader className="flex-shrink-0">
-              <CardTitle className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Clock className="h-5 w-5 text-primary" />
-                  Recent Scans
-                </div>
-
-                {recentScans.length > 0 &&
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => ClearScanHistory().then(() => setRecentScans([]))}
-                    className="h-8 w-8 p-0 opacity-60 hover:opacity-100"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
-                }
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="flex-1 min-h-0">
-              <ScrollArea className="h-full">
-                <div className="space-y-3 pr-4">
-                  {loading ? (
-                    <p className="text-muted-foreground">Loading recent scans...</p>
-                  ) : recentScans.length === 0 ? (
-                    <p className="text-muted-foreground">No recent scans found</p>
-                  ) : recentScans.map((scan) => (
-                    <div
-                      key={scan.id}
-                      className={`flex items-center justify-between p-3 rounded-lg transition-quick relative ${scan.isMissing
-                        ? "bg-muted/20 cursor-not-allowed opacity-60"
-                        : "bg-muted/30 hover:bg-muted/50 cursor-pointer"
-                        }`}
-                      onClick={
-                        async () => {
-                          if (scan.isMissing) return
-
-                          await SetCurrentScan(scan.id)
-                          onOpenRecent(scan.id)
-                        }
-                      }
-                    >
-                      <div className="flex items-center gap-3 flex-1">
-                        {scan.sourceType === "image" ? (
-                          <Folder className={`h-4 w-4 ${scan.isMissing ? "text-muted-foreground" : "text-info"}`} />
-                        ) : (
-                          <HardDrive className={`h-4 w-4 ${scan.isMissing ? "text-muted-foreground" : "text-info"}`} />
-                        )}
-                        <div className="flex-1 min-w-0">
-                          <p className={`font-medium text-sm truncate max-w-md ${scan.isMissing ? "text-muted-foreground" : "text-foreground"
-                            }`}>
-                            {scan.sourcePath}
-                          </p>
-                          <p className="text-xs text-muted-foreground">
-                            {formatTime(scan.scanStartedAt)} • {scan.filesFound.toLocaleString()} files found
-                          </p>
-                        </div>
-                        {scan.isMissing && (
-                          <Badge variant="destructive" className="flex items-center gap-1 text-xs">
-                            <AlertCircle className="h-3 w-3" />
-                            Missing file
-                          </Badge>
-                        )}
-                      </div>
-                      {!scan.isMissing && (
-                        <ChevronRight className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </ScrollArea>
-            </CardContent>
-          </Card>
-        </motion.div>
-
+    <div className="flex flex-col h-screen bg-background select-none overflow-hidden">
+      {/* Hero */}
+      <div className="flex flex-col items-center pt-14 pb-8 px-8">
+        <img
+          src="/lovable-uploads/f64971ef-af26-4710-aba1-43092c2d604f.png"
+          alt="Digler"
+          className="h-20 w-20 object-contain mb-4"
+        />
+        <h1 className="text-[28px] font-bold text-foreground tracking-tight">Digler</h1>
+        <p className="mt-1 text-[15px] text-muted-foreground">Go Deep. Get Back Your Data.</p>
       </div>
-    </div >
+
+      {/* Action tiles */}
+      <div className="grid grid-cols-2 gap-4 px-8 mb-8">
+        <button
+          onClick={() => onNavigateToScan('image')}
+          className="flex flex-col items-center gap-3 p-7 bg-card rounded-2xl border border-border/60 shadow-sm hover:shadow-md hover:border-primary/30 transition-all duration-200 group"
+        >
+          <div className="h-14 w-14 rounded-2xl bg-primary/10 flex items-center justify-center group-hover:bg-primary/15 transition-colors">
+            <Folder className="h-7 w-7 text-primary" />
+          </div>
+          <div className="text-center">
+            <p className="font-semibold text-[15px] text-foreground">Open Disk Image</p>
+            <p className="text-[13px] text-muted-foreground mt-0.5">Scan .dd, .img, .raw files</p>
+          </div>
+        </button>
+
+        <button
+          onClick={() => onNavigateToScan('device')}
+          className="flex flex-col items-center gap-3 p-7 bg-card rounded-2xl border border-border/60 shadow-sm hover:shadow-md hover:border-primary/30 transition-all duration-200 group"
+        >
+          <div className="h-14 w-14 rounded-2xl bg-primary/10 flex items-center justify-center group-hover:bg-primary/15 transition-colors">
+            <HardDrive className="h-7 w-7 text-primary" />
+          </div>
+          <div className="text-center">
+            <p className="font-semibold text-[15px] text-foreground">Scan Device</p>
+            <p className="text-[13px] text-muted-foreground mt-0.5">Scan physical drives directly</p>
+          </div>
+        </button>
+      </div>
+
+      {/* Recent scans */}
+      <div className="flex-1 flex flex-col min-h-0 px-8 pb-8">
+        <div className="flex items-center justify-between mb-3">
+          <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Recent Scans</p>
+          {recentScans.length > 0 && (
+            <button
+              onClick={() => ClearScanHistory().then(() => setRecentScans([]))}
+              className="text-[12px] text-muted-foreground hover:text-destructive transition-colors"
+            >
+              Clear All
+            </button>
+          )}
+        </div>
+
+        <div className="flex-1 min-h-0 bg-card rounded-2xl border border-border/60 shadow-sm overflow-hidden">
+          <ScrollArea className="h-full">
+            {loading ? (
+              <div className="flex items-center justify-center h-24 text-[14px] text-muted-foreground">
+                Loading…
+              </div>
+            ) : recentScans.length === 0 ? (
+              <div className="flex items-center justify-center h-24 text-[14px] text-muted-foreground">
+                No recent scans
+              </div>
+            ) : (
+              <div>
+                {recentScans.map((scan, i) => (
+                  <div key={scan.id}>
+                    {i > 0 && <div className="h-px bg-border/50 mx-4" />}
+                    <button
+                      className={`w-full flex items-center gap-3 px-4 py-3.5 text-left transition-colors ${
+                        scan.isMissing
+                          ? 'opacity-40 cursor-not-allowed'
+                          : 'hover:bg-muted/40'
+                      }`}
+                      onClick={async () => {
+                        if (scan.isMissing) return;
+                        await SetCurrentScan(scan.id);
+                        onOpenRecent(scan.id);
+                      }}
+                      disabled={scan.isMissing}
+                    >
+                      <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">
+                        {scan.sourceType === 'image'
+                          ? <Folder className="h-4 w-4 text-primary" />
+                          : <HardDrive className="h-4 w-4 text-primary" />
+                        }
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[14px] font-medium text-foreground truncate">{scan.sourcePath}</p>
+                        <p className="text-[12px] text-muted-foreground mt-0.5">
+                          {formatTime(scan.scanStartedAt)} · {scan.filesFound.toLocaleString()} files found
+                        </p>
+                      </div>
+                      {scan.isMissing ? (
+                        <Badge variant="destructive" className="text-[11px] flex-shrink-0 gap-1">
+                          <AlertCircle className="h-3 w-3" />
+                          Missing
+                        </Badge>
+                      ) : (
+                        <ChevronRight className="h-4 w-4 text-muted-foreground/60 flex-shrink-0" />
+                      )}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </ScrollArea>
+        </div>
+      </div>
+    </div>
   );
 };

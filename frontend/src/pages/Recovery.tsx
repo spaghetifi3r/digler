@@ -1,12 +1,8 @@
 import { useState, useEffect } from "react";
-import { motion } from "framer-motion";
-import { ArrowLeft, Folder, CheckCircle, AlertTriangle, Download } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { ArrowLeft, Folder, CheckCircle, Download, AlertTriangle } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ProgressBar } from "@/components/ProgressBar";
-import { DigleLogo } from "@/components/DigleLogo";
 import { StartRecovery, RecoveryProgress } from '../wailsjs/go/api/ScanAPI';
 import { OpenFolderDialog } from '../wailsjs/go/app/App';
 import { GetConfig } from '../wailsjs/go/api/ConfigAPI';
@@ -37,84 +33,63 @@ export const Recovery = ({ onBack, onComplete, scanID, selectedFiles }: Recovery
   const [isComplete, setIsComplete] = useState(false);
   const [totalFiles, setTotalFiles] = useState(0);
 
-  const size = selectedFiles.reduce((acc, item) => acc + parseInt(item.size), 0);
+  useEffect(() => {
+    GetConfig("OUTDIR").then(outDir => setRecoveryPath(outDir)).catch(() => {});
+  }, []);
 
-  const [totalSize] = useState(size);
+  useEffect(() => {
+    if (!isRecovering || isComplete) return;
+    const interval = setInterval(async () => {
+      const status = await RecoveryProgress(scanID);
+      const totalProcessed = status.recovered + status.errors;
+      setRecoveredCount(status.recovered);
+      setErrorCount(status.errors);
+      setTotalFiles(totalProcessed);
+      if (totalProcessed - 1 < selectedFiles.length) {
+        setCurrentFile(selectedFiles[totalProcessed - 1]?.name ?? "");
+      }
+      const newProgress = status.progress * 100;
+      setProgress(newProgress);
+      if (status.progress >= 1) {
+        clearInterval(interval);
+        setIsComplete(true);
+      }
+    }, 150);
+    return () => clearInterval(interval);
+  }, [isRecovering, isComplete, scanID, selectedFiles]);
 
   const browseRecoveryPath = async () => {
     try {
       const folderPath = await OpenFolderDialog();
-      if (folderPath) setRecoveryPath(folderPath)
-    } catch (err) {
-      console.error("Folder dialog cancelled or failed", err);
-    }
+      if (folderPath) setRecoveryPath(folderPath);
+    } catch {}
   };
-
-  useEffect(() => {
-    GetConfig("OUTDIR").
-      then(outDir => setRecoveryPath(outDir))
-  }, []);
-
-  useEffect(() => {
-    if (isRecovering && !isComplete) {
-      const interval = setInterval(async () => {
-        const status = await RecoveryProgress(scanID)
-
-        const totalProcessed = status.recovered + status.errors;
-
-        setRecoveredCount(status.recovered);
-        setErrorCount(status.errors);
-        setTotalFiles(totalProcessed);
-
-        setProgress(prev => {
-          const newProgress = status.progress;
-
-          // Update current file
-          if (totalProcessed - 1 < selectedFiles.length) {
-            setCurrentFile(selectedFiles[totalProcessed - 1].name);
-          }
-
-          if (newProgress >= 1) {
-            clearInterval(interval);
-            setIsComplete(true);
-          }
-          return newProgress * 100;
-        });
-      }, 150);
-
-      return () => clearInterval(interval);
-    }
-  }, [isRecovering, isComplete, totalFiles, selectedFiles, errorCount]);
 
   const handleStartRecovery = async () => {
     if (!recoveryPath) return;
-
-    const names = selectedFiles.map(file => file.name);
-
     try {
-      await StartRecovery(scanID, names, recoveryPath);
+      await StartRecovery(scanID, selectedFiles.map(f => f.name), recoveryPath);
     } catch (err) {
-      console.log(`unable to start recovery ${err} `);
+      console.error(`unable to start recovery: ${err}`);
       return;
     }
     setIsRecovering(true);
   };
 
   const handleDownloadLog = () => {
-    const logContent = `
-Digler Recovery Report
-Generated: ${new Date().toLocaleString()}
-
-Recovery Summary:
-- Total files processed: ${totalFiles}
-- Successfully recovered: ${recoveredCount}
-- Errors encountered: ${errorCount}
-- Recovery path: ${recoveryPath}
-
-File Details:
-${selectedFiles.map(file => `- ${file.name} (${file.size}) - ${file.status}`).join('\n')}
-    `.trim();
-
+    const logContent = [
+      "Digler Recovery Report",
+      `Generated: ${new Date().toLocaleString()}`,
+      "",
+      "Recovery Summary:",
+      `- Total files processed: ${totalFiles}`,
+      `- Successfully recovered: ${recoveredCount}`,
+      `- Errors encountered: ${errorCount}`,
+      `- Recovery path: ${recoveryPath}`,
+      "",
+      "File Details:",
+      ...selectedFiles.map(f => `- ${f.name} (${f.size}) — ${f.status}`),
+    ].join('\n');
     const blob = new Blob([logContent], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -126,189 +101,201 @@ ${selectedFiles.map(file => `- ${file.name} (${file.size}) - ${file.status}`).jo
     URL.revokeObjectURL(url);
   };
 
-  return (
-    <div className="min-h-screen bg-gradient-subtle">
-      <div className="container mx-auto px-6 py-8 max-w-4xl">
-        {/* Header */}
-        <motion.div
-          className="flex items-center gap-4 mb-8"
-          initial={{ opacity: 0, x: -20 }}
-          animate={{ opacity: 1, x: 0 }}
-        >
-          <Button variant="ghost" onClick={onBack} className="p-2" disabled={isRecovering && !isComplete}>
-            <ArrowLeft className="h-4 w-4" />
-          </Button>
-          <DigleLogo size="sm" showTagline={false} />
-          <div className="flex-1">
-            <h2 className="text-xl font-semibold">File Recovery</h2>
-            <p className="text-sm text-muted-foreground">
-              {totalFiles} files selected ({totalSize.toFixed(1)} MB total)
-            </p>
-          </div>
-        </motion.div>
+  /* ── shared header ── */
+  const Header = () => (
+    <div className="flex items-center gap-3 px-6 py-4 border-b border-border/60 bg-card/80 backdrop-blur-sm">
+      <button
+        onClick={onBack}
+        disabled={isRecovering && !isComplete}
+        className="h-7 w-7 rounded-full bg-muted flex items-center justify-center hover:bg-muted/80 transition-colors disabled:opacity-40"
+      >
+        <ArrowLeft className="h-3.5 w-3.5 text-muted-foreground" />
+      </button>
+      <img src="/lovable-uploads/f64971ef-af26-4710-aba1-43092c2d604f.png" alt="" className="h-6 w-6 object-contain" />
+      <div className="flex-1">
+        <p className="font-semibold text-[15px] text-foreground">
+          {isComplete ? "Recovery Complete" : isRecovering ? "Recovering Files…" : "Recover Files"}
+        </p>
+        <p className="text-[12px] text-muted-foreground">
+          {selectedFiles.length} files selected
+        </p>
+      </div>
+    </div>
+  );
 
-        {!isRecovering ? (
-          <motion.div
-            className="space-y-6"
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-          >
-            {/* Destination Selection */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Folder className="h-5 w-5" />
-                  Recovery Destination
-                </CardTitle>
-                <CardDescription>
-                  Choose where to save your recovered files
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="space-y-2">
-                  <Label>Output Directory</Label>
-                  <div className="flex gap-2">
-                    <Input
-                      readOnly
-                      value={recoveryPath}
-                      onChange={(e) => setRecoveryPath(e.target.value)}
-                    />
-                    <Button variant="outline" onClick={browseRecoveryPath}>Browse</Button>
+  /* ── config view ── */
+  if (!isRecovering) {
+    return (
+      <div className="flex flex-col h-screen bg-background">
+        <Header />
+        <div className="flex-1 overflow-y-auto p-6 space-y-4">
+          {/* Destination */}
+          <div className="bg-card rounded-2xl border border-border/60 shadow-sm overflow-hidden">
+            <div className="px-5 py-4 border-b border-border/40">
+              <p className="font-semibold text-[15px] text-foreground flex items-center gap-2">
+                <Folder className="h-4 w-4 text-muted-foreground" />
+                Save Location
+              </p>
+              <p className="text-[12px] text-muted-foreground mt-0.5">Where to save your recovered files</p>
+            </div>
+            <div className="px-5 py-4">
+              <Label className="text-[13px] font-medium text-foreground block mb-1.5">Output Directory</Label>
+              <div className="flex gap-2">
+                <Input
+                  readOnly
+                  value={recoveryPath}
+                  placeholder="No directory selected"
+                  className="text-[13px] rounded-xl border-border/60 bg-muted/40"
+                />
+                <button
+                  onClick={browseRecoveryPath}
+                  className="px-4 py-2 rounded-xl border border-border/60 text-[13px] font-medium text-foreground hover:bg-muted/40 transition-colors flex-shrink-0"
+                >
+                  Browse
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Files summary */}
+          <div className="bg-card rounded-2xl border border-border/60 shadow-sm overflow-hidden">
+            <div className="px-5 py-4 border-b border-border/40">
+              <p className="font-semibold text-[15px] text-foreground">Files to Recover</p>
+              <p className="text-[12px] text-muted-foreground mt-0.5">{selectedFiles.length} files selected</p>
+            </div>
+            <div className="max-h-52 overflow-y-auto">
+              {selectedFiles.map((file, i) => (
+                <div key={file.id}>
+                  {i > 0 && <div className="h-px bg-border/40 mx-5" />}
+                  <div className="flex items-center justify-between px-5 py-3">
+                    <span className="text-[13px] font-medium text-foreground truncate max-w-xs">{file.name}</span>
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      <span className="text-[12px] text-muted-foreground">{file.size}</span>
+                      <div className={`h-1.5 w-1.5 rounded-full ${
+                        file.status === 'recoverable' ? 'bg-success' :
+                        file.status === 'partial' ? 'bg-warning' : 'bg-destructive'
+                      }`} />
+                    </div>
                   </div>
                 </div>
-              </CardContent>
-            </Card>
+              ))}
+            </div>
+          </div>
+        </div>
 
-            {/* File Summary */}
-            <Card>
-              <CardHeader>
-                <CardTitle>Files to Recover</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-2 max-h-48 overflow-y-auto">
-                  {selectedFiles.map((file) => (
-                    <div key={file.id} className="flex items-center justify-between p-2 bg-muted/30 rounded">
-                      <span className="text-sm font-medium truncate max-w-md">{file.name}</span>
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs text-muted-foreground">{file.size}</span>
-                        <div className={`h-2 w-2 rounded-full ${file.status === 'recoverable' ? 'bg-success' :
-                          file.status === 'partial' ? 'bg-warning' : 'bg-danger'
-                          }`} />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Start Recovery */}
-            <Button
-              size="lg"
-              className="w-full hero-gradient text-primary-foreground font-semibold"
-              onClick={handleStartRecovery}
-              disabled={!recoveryPath}
-            >
-              <Download className="mr-2 h-5 w-5" />
-              Start Recovery Process
-            </Button>
-          </motion.div>
-        ) : (
-          <motion.div
-            className="space-y-6"
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
+        <div className="px-6 pb-6 pt-3 bg-background border-t border-border/40">
+          <button
+            onClick={handleStartRecovery}
+            disabled={!recoveryPath}
+            className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl bg-primary text-white font-semibold text-[15px] disabled:opacity-40 hover:brightness-105 transition-all shadow-sm"
           >
-            {/* Progress Section */}
-            <Card>
-              <CardHeader>
-                <CardTitle>Recovery in Progress</CardTitle>
-                <CardDescription>Saving files to {recoveryPath}</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <ProgressBar
-                  progress={progress}
-                  label="Overall Progress"
-                  variant={isComplete ? "recovery" : "default"}
-                />
+            <Download className="h-4 w-4" />
+            Start Recovery
+          </button>
+        </div>
+      </div>
+    );
+  }
 
-                {!isComplete && (
-                  <div className="text-center">
-                    <p className="text-sm text-muted-foreground">
-                      Currently recovering: <span className="font-medium text-foreground">{currentFile}</span>
-                    </p>
+  /* ── progress + completion view ── */
+  return (
+    <div className="flex flex-col h-screen bg-background">
+      <Header />
+      <div className="flex-1 overflow-y-auto p-6 space-y-4">
+        {/* Progress card */}
+        <div className="bg-card rounded-2xl border border-border/60 shadow-sm overflow-hidden">
+          <div className="px-5 py-4 border-b border-border/40">
+            <p className="font-semibold text-[15px] text-foreground">
+              {isComplete ? "Recovery Complete" : "Recovering…"}
+            </p>
+            {!isComplete && (
+              <p className="text-[12px] text-muted-foreground mt-0.5 truncate">Saving to {recoveryPath}</p>
+            )}
+          </div>
+          <div className="px-5 py-5 space-y-5">
+            <ProgressBar
+              progress={progress}
+              variant={isComplete ? "recovery" : "default"}
+              showPercentage
+            />
+
+            {!isComplete && currentFile && (
+              <p className="text-[12px] text-muted-foreground text-center truncate">
+                Recovering: <span className="text-foreground font-medium">{currentFile}</span>
+              </p>
+            )}
+
+            <div className="grid grid-cols-3 gap-3">
+              <div className="bg-muted/40 rounded-xl p-3 text-center">
+                <p className="text-[20px] font-bold text-success">{recoveredCount}</p>
+                <p className="text-[11px] text-muted-foreground mt-0.5">Recovered</p>
+              </div>
+              <div className="bg-muted/40 rounded-xl p-3 text-center">
+                <p className="text-[20px] font-bold text-foreground">
+                  {Math.max(0, selectedFiles.length - recoveredCount - errorCount)}
+                </p>
+                <p className="text-[11px] text-muted-foreground mt-0.5">Remaining</p>
+              </div>
+              <div className="bg-muted/40 rounded-xl p-3 text-center">
+                <p className="text-[20px] font-bold text-warning">{errorCount}</p>
+                <p className="text-[11px] text-muted-foreground mt-0.5">Errors</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Completion card */}
+        {isComplete && (
+          <div className="bg-card rounded-2xl border border-success/20 shadow-sm overflow-hidden">
+            <div className="px-5 py-5 space-y-4">
+              <div className="flex items-center gap-3">
+                <div className="h-12 w-12 rounded-full bg-success/10 flex items-center justify-center flex-shrink-0">
+                  <CheckCircle className="h-6 w-6 text-success" />
+                </div>
+                <div>
+                  <p className="font-semibold text-[16px] text-foreground">All done!</p>
+                  <p className="text-[13px] text-muted-foreground">
+                    {recoveredCount} file{recoveredCount !== 1 ? 's' : ''} saved to your chosen location
+                  </p>
+                </div>
+              </div>
+
+              <div className="bg-muted/40 rounded-xl px-4 py-3 space-y-1.5 text-[13px]">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Recovered</span>
+                  <span className="font-medium text-success">{recoveredCount}</span>
+                </div>
+                {errorCount > 0 && (
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground flex items-center gap-1">
+                      <AlertTriangle className="h-3 w-3 text-warning" /> Errors
+                    </span>
+                    <span className="font-medium text-warning">{errorCount}</span>
                   </div>
                 )}
-
-                <div className="grid grid-cols-3 gap-4 text-center">
-                  <div>
-                    <p className="text-2xl font-bold text-primary">{recoveredCount}</p>
-                    <p className="text-sm text-muted-foreground">Recovered</p>
-                  </div>
-                  <div>
-                    <p className="text-2xl font-bold text-primary">{totalFiles - recoveredCount - errorCount}</p>
-                    <p className="text-sm text-muted-foreground">Remaining</p>
-                  </div>
-                  <div>
-                    <p className="text-2xl font-bold text-warning">{errorCount}</p>
-                    <p className="text-sm text-muted-foreground">Errors</p>
-                  </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Location</span>
+                  <span className="font-mono text-[11px] text-foreground truncate max-w-[180px]">{recoveryPath}</span>
                 </div>
-              </CardContent>
-            </Card>
+              </div>
 
-            {/* Completion Summary */}
-            {isComplete && (
-              <motion.div
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
-                transition={{ delay: 0.3 }}
-              >
-                <Card className="border-success/20 bg-success/5">
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2 text-success">
-                      <CheckCircle className="h-5 w-5" />
-                      Recovery Complete!
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <div className="space-y-2">
-                      <div className="flex justify-between">
-                        <span>✅ Files successfully recovered:</span>
-                        <span className="font-semibold text-success">{recoveredCount}</span>
-                      </div>
-                      {errorCount > 0 && (
-                        <div className="flex justify-between">
-                          <span>⚠️ Files with errors:</span>
-                          <span className="font-semibold text-warning">{errorCount}</span>
-                        </div>
-                      )}
-                      <div className="flex justify-between">
-                        <span>📁 Recovery location:</span>
-                        <span className="font-mono text-sm text-muted-foreground">{recoveryPath}</span>
-                      </div>
-                    </div>
-
-                    <div className="flex gap-2">
-                      <Button
-                        variant="outline"
-                        onClick={handleDownloadLog}
-                        className="flex-1"
-                      >
-                        <Download className="mr-2 h-4 w-4" />
-                        Download Report
-                      </Button>
-                      <Button
-                        onClick={onComplete}
-                        className="flex-1 hero-gradient text-primary-foreground"
-                      >
-                        Return Home
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
-              </motion.div>
-            )}
-          </motion.div>
+              <div className="flex gap-3">
+                <button
+                  onClick={handleDownloadLog}
+                  className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl border border-border/60 text-[13px] font-medium text-foreground hover:bg-muted/40 transition-colors"
+                >
+                  <Download className="h-3.5 w-3.5" />
+                  Save Report
+                </button>
+                <button
+                  onClick={onComplete}
+                  className="flex-1 py-2.5 rounded-xl bg-primary text-white text-[13px] font-semibold hover:brightness-105 transition-all"
+                >
+                  Done
+                </button>
+              </div>
+            </div>
+          </div>
         )}
       </div>
     </div>

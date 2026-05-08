@@ -1,5 +1,3 @@
-import { motion } from "framer-motion";
-
 interface ProgressBarProps {
   progress: number;
   label?: string;
@@ -8,42 +6,35 @@ interface ProgressBarProps {
   className?: string;
 }
 
-export const ProgressBar = ({ 
-  progress, 
-  label, 
-  showPercentage = true, 
+export const ProgressBar = ({
+  progress,
+  label,
+  showPercentage = true,
   variant = "default",
-  className = "" 
+  className = "",
 }: ProgressBarProps) => {
-  const getVariantClasses = () => {
-    switch (variant) {
-      case "recovery":
-        return "bg-success progress-glow";
-      case "warning":
-        return "bg-warning";
-      case "danger":
-        return "bg-danger";
-      default:
-        return "bg-primary progress-glow";
-    }
-  };
+  const clamped = Math.min(100, Math.max(0, progress));
+
+  const barColor =
+    variant === "recovery" ? "bg-success" :
+    variant === "warning"  ? "bg-warning" :
+    variant === "danger"   ? "bg-destructive" :
+    "bg-primary";
 
   return (
     <div className={`w-full ${className}`}>
       {label && (
-        <div className="flex justify-between items-center mb-2">
-          <span className="text-sm font-medium text-foreground">{label}</span>
+        <div className="flex justify-between items-center mb-1.5">
+          <span className="text-[13px] font-medium text-foreground">{label}</span>
           {showPercentage && (
-            <span className="text-sm text-muted-foreground">{progress}%</span>
+            <span className="text-[13px] text-muted-foreground">{Math.round(clamped)}%</span>
           )}
         </div>
       )}
-      <div className="w-full bg-muted rounded-full h-2 overflow-hidden">
-        <motion.div
-          className={`h-full rounded-full transition-smooth ${getVariantClasses()}`}
-          initial={{ width: 0 }}
-          animate={{ width: `${progress}%` }}
-          transition={{ duration: 0.5, ease: "easeOut" }}
+      <div className="w-full bg-muted rounded-full h-1.5 overflow-hidden">
+        <div
+          className={`h-full rounded-full transition-all duration-300 ease-out ${barColor}`}
+          style={{ width: `${clamped}%` }}
         />
       </div>
     </div>
